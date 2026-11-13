@@ -1,0 +1,150 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="Notium.App"
+             RequestedThemeVariant="Dark">
+    <Application.Styles>
+        <FluentTheme>
+            <FluentTheme.Palettes>
+                <ColorPaletteResources x:Key="Dark" Accent="#D0D0D0" RegionColor="#1C1C1C"/>
+                <ColorPaletteResources x:Key="Light" Accent="#404040" RegionColor="#FFFFFF"/>
+            </FluentTheme.Palettes>
+        </FluentTheme>
+        <StyleInclude Source="avares://AvaloniaEdit/Themes/Fluent/AvaloniaEdit.xaml"/>
+
+        <!-- flat, rounded buttons used in the tab bar -->
+        <Style Selector="Button.flat">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="8,4"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+        </Style>
+        <Style Selector="Button.flat:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource HoverBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+        </Style>
+        <Style Selector="Button.flat:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource HoverBrush}"/>
+        </Style>
+
+        <!-- settings: side menu, accent bar on the selected page -->
+        <Style Selector="ListBox.nav ListBoxItem">
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Margin" Value="0,1"/>
+            <Setter Property="Padding" Value="14,9"/>
+            <Setter Property="BorderThickness" Value="3,0,0,0"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+        </Style>
+        <Style Selector="ListBox.nav ListBoxItem /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="Transparent"/>
+        </Style>
+        <Style Selector="ListBox.nav ListBoxItem:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource HoverBrush}"/>
+        </Style>
+        <Style Selector="ListBox.nav ListBoxItem:selected /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource ActiveTabBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+        </Style>
+        <Style Selector="ListBox.nav ListBoxItem:selected:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource ActiveTabBrush}"/>
+        </Style>
+        <Style Selector="ListBox.nav ListBoxItem:selected:focus /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource ActiveTabBrush}"/>
+        </Style>
+
+        <!-- settings cards -->
+        <Style Selector="Border.card">
+            <Setter Property="BorderBrush" Value="{DynamicResource HoverBrush}"/>
+        </Style>
+
+        <!-- toggle button that is switched on (folder panel, minimap) -->
+        <Style Selector="Button.flat.on /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource ActiveTabBrush}"/>
+        </Style>
+        <Style Selector="Button.flat.on:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource ActiveTabBrush}"/>
+        </Style>
+
+        <!-- close button of a tab: red on hover -->
+        <Style Selector="Button.tabclose Path">
+            <Setter Property="Stroke" Value="{DynamicResource TextBrush}"/>
+        </Style>
+        <Style Selector="Button.tabclose.idle Path">
+            <Setter Property="Stroke" Value="Transparent"/>
+        </Style>
+        <Style Selector="Button.flat.tabclose:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#E81123"/>
+        </Style>
+        <Style Selector="Button.flat.tabclose:pointerover Path">
+            <Setter Property="Stroke" Value="#FFFFFF"/>
+        </Style>
+        <Style Selector="Button.flat.tabclose:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#B50E1C"/>
+        </Style>
+
+        <!-- destructive button ("Don't save"): red under the mouse -->
+        <Style Selector="Button.danger:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#E81123"/>
+            <Setter Property="Foreground" Value="#FFFFFF"/>
+        </Style>
+        <Style Selector="Button.danger:pressed /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="#B50E1C"/>
+            <Setter Property="Foreground" Value="#FFFFFF"/>
+        </Style>
+
+        <!-- status bar buttons -->
+        <Style Selector="Button.status">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="9,0"/>
+            <Setter Property="MinHeight" Value="0"/>
+            <Setter Property="Height" Value="22"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="CornerRadius" Value="6"/>
+            <Setter Property="Foreground" Value="{DynamicResource MutedBrush}"/>
+        </Style>
+        <Style Selector="Button.status:pointerover /template/ ContentPresenter#PART_ContentPresenter">
+            <Setter Property="Background" Value="{DynamicResource HoverBrush}"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+        </Style>
+        <!-- small scroll bar under the tabs, shown only when the tabs do not fit -->
+        <Style Selector="ScrollViewer#TabScroll ScrollBar:horizontal">
+            <Setter Property="Height" Value="7"/>
+            <Setter Property="MinHeight" Value="7"/>
+            <Setter Property="Margin" Value="0,0,0,2"/>
+        </Style>
+
+        <!-- rounded modern inputs and toggles -->
+        <Style Selector="TextBox">
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Padding" Value="10,6"/>
+        </Style>
+        <Style Selector="ToggleButton">
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Padding" Value="10,4"/>
+        </Style>
+        <Style Selector="Button">
+            <Setter Property="CornerRadius" Value="8"/>
+        </Style>
+        <Style Selector="ComboBox">
+            <Setter Property="CornerRadius" Value="8"/>
+        </Style>
+        <Style Selector="ContextMenu, MenuFlyoutPresenter">
+            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="Padding" Value="4"/>
+        </Style>
+        <Style Selector="MenuItem">
+            <Setter Property="CornerRadius" Value="6"/>
+        </Style>
+    </Application.Styles>
+
+    <Application.Resources>
+        <SolidColorBrush x:Key="ChromeBrush" Color="#121212"/>
+        <SolidColorBrush x:Key="BgBrush" Color="#1C1C1C"/>
+        <SolidColorBrush x:Key="TextBrush" Color="#E6E6E6"/>
+        <SolidColorBrush x:Key="MutedBrush" Color="#8A8A8A"/>
+        <SolidColorBrush x:Key="HoverBrush" Color="#2E2E2E"/>
+        <SolidColorBrush x:Key="AccentBrush" Color="#D0D0D0"/>
+        <SolidColorBrush x:Key="ActiveTabBrush" Color="#1C1C1C"/>
+    </Application.Resources>
+</Application>

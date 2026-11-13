@@ -1,0 +1,117 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ae="using:AvaloniaEdit"
+        xmlns:local="using:Notium"
+        x:Class="Notium.MainWindow"
+        Title="Notium" Width="1000" Height="680" MinWidth="480" MinHeight="300"
+        Icon="/Assets/notium.png"
+        Background="{DynamicResource BgBrush}" Foreground="{DynamicResource TextBrush}"
+        FontSize="13">
+    <Grid RowDefinitions="Auto,*,Auto">
+
+        <!-- Tab bar -->
+        <LayoutTransformControl x:Name="TabBarScale" Grid.Row="0">
+            <Border x:Name="TabBar" Height="46" Background="{DynamicResource ChromeBrush}">
+                <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto">
+                    <Button x:Name="MenuBtn" Classes="flat" Width="40" Height="32" Margin="6,0,2,0"
+                            HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Click="MenuBtn_Click">
+                        <Path Stroke="{DynamicResource TextBrush}" StrokeThickness="1.6" StrokeLineCap="Round"
+                              Data="M0,1 L14,1 M0,6 L14,6 M0,11 L14,11"/>
+                    </Button>
+                    <Button x:Name="SideBtn" Grid.Column="1" Classes="flat" Width="36" Height="32" Margin="2,0"
+                            HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Click="Sidebar_Click"
+                            ToolTip.Tip="Folder panel">
+                        <Path Stroke="{DynamicResource TextBrush}" StrokeThickness="1.5" StrokeJoin="Round"
+                              Data="M0.75,0.75 L14.25,0.75 L14.25,12.25 L0.75,12.25 Z M5.5,0.75 L5.5,12.25"/>
+                    </Button>
+                    <ScrollViewer x:Name="TabScroll" Grid.Column="2" HorizontalScrollBarVisibility="Auto" ScrollViewer.AllowAutoHide="False"
+                                  VerticalScrollBarVisibility="Disabled" VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal">
+                            <StackPanel x:Name="TabPanel" Orientation="Horizontal"/>
+                            <!-- the + button sits right after the last tab -->
+                            <Button x:Name="NewTabBtn" Classes="flat" Width="32" Height="28" Margin="2,0,8,0"
+                                    HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Click="NewTab_Click"
+                                    ToolTip.Tip="New tab">
+                                <Path Stroke="{DynamicResource TextBrush}" StrokeThickness="1.6" StrokeLineCap="Round"
+                                      Data="M6,0 L6,12 M0,6 L12,6"/>
+                            </Button>
+                        </StackPanel>
+                    </ScrollViewer>
+                    <Button x:Name="MapBtn" Grid.Column="3" Classes="flat" Width="36" Height="32" Margin="2,0"
+                            HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Click="MapBtn_Click"
+                            ToolTip.Tip="Minimap">
+                        <Path Stroke="{DynamicResource TextBrush}" StrokeThickness="1.5" StrokeJoin="Round" StrokeLineCap="Round"
+                              Data="M0.75,0.75 L14.25,0.75 L14.25,12.25 L0.75,12.25 Z M9.5,3.5 L12,3.5 M9.5,6.5 L12,6.5 M9.5,9.5 L12,9.5"/>
+                    </Button>
+                    <Button x:Name="SettingsBtn" Grid.Column="4" Classes="flat" Width="40" Height="32" Margin="2,0,6,0"
+                            HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Click="Settings_Click"
+                            ToolTip.Tip="Settings">
+                        <Path Stroke="{DynamicResource TextBrush}" StrokeThickness="1.5" StrokeLineCap="Round"
+                              Data="M0,4 L4.5,4 M9.5,4 L15,4 M7,1.5 A2.5,2.5 0 1 1 7,6.5 A2.5,2.5 0 1 1 7,1.5 M0,12 L7.5,12 M12.5,12 L15,12 M10,9.5 A2.5,2.5 0 1 1 10,14.5 A2.5,2.5 0 1 1 10,9.5"/>
+                    </Button>
+                </Grid>
+            </Border>
+        </LayoutTransformControl>
+
+        <!-- Body: folder panel, editor, minimap -->
+        <Grid Grid.Row="1" ColumnDefinitions="Auto,*,Auto">
+            <Border x:Name="SidePanel" Grid.Column="0" Width="250" IsVisible="False"
+                    Background="{DynamicResource ChromeBrush}"/>
+
+            <ae:TextEditor x:Name="Editor" Grid.Column="1" Padding="28,18,12,12" ShowLineNumbers="False" WordWrap="True"
+                           HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
+                           FontFamily="Cascadia Code, Consolas, Menlo, DejaVu Sans Mono, monospace" FontSize="14"/>
+            <local:Minimap x:Name="Map" Grid.Column="2" Width="110" IsVisible="False"/>
+
+            <!-- Find / replace panel -->
+            <Border x:Name="FindPanel" Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Top"
+                    Margin="0,14,26,0" Padding="12" CornerRadius="12" IsVisible="False"
+                    Background="{DynamicResource ChromeBrush}" BorderBrush="{DynamicResource HoverBrush}"
+                    BorderThickness="1" BoxShadow="0 8 28 0 #88000000">
+                <StackPanel Spacing="6">
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <TextBox x:Name="FindBox" Width="210" Watermark="Find" KeyDown="FindBox_KeyDown"/>
+                        <Button Classes="flat" Click="FindPrev_Click" ToolTip.Tip="Previous (Shift+F3)">
+                            <Path Stroke="{DynamicResource TextBrush}" StrokeThickness="1.6" StrokeLineCap="Round" StrokeJoin="Round" Data="M1,6 L5,2 L9,6"/>
+                        </Button>
+                        <Button Classes="flat" Click="FindNext_Click" ToolTip.Tip="Next (F3)">
+                            <Path Stroke="{DynamicResource TextBrush}" StrokeThickness="1.6" StrokeLineCap="Round" StrokeJoin="Round" Data="M1,2 L5,6 L9,2"/>
+                        </Button>
+                        <Button Classes="flat" Click="FindClose_Click" ToolTip.Tip="Close (Esc)">
+                            <Path Stroke="{DynamicResource TextBrush}" StrokeThickness="1.6" StrokeLineCap="Round" Data="M1,1 L9,9 M9,1 L1,9"/>
+                        </Button>
+                    </StackPanel>
+                    <StackPanel x:Name="ReplaceRow" Orientation="Horizontal" Spacing="4" IsVisible="False">
+                        <TextBox x:Name="ReplaceBox" Width="210" Watermark="Replace with" KeyDown="ReplaceBox_KeyDown"/>
+                        <Button Classes="flat" Content="Replace" Click="ReplaceOne_Click"/>
+                        <Button Classes="flat" Content="All" Click="ReplaceAll_Click"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <ToggleButton x:Name="CaseChk" Content="Aa" ToolTip.Tip="Match case" Click="FindOpt_Click"/>
+                        <ToggleButton x:Name="RegexChk" Content=".*" ToolTip.Tip="Regular expressions" Click="FindOpt_Click"/>
+                        <TextBlock x:Name="FindInfo" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center" FontSize="12"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <!-- Status bar -->
+        <LayoutTransformControl x:Name="StatusScale" Grid.Row="2">
+            <Border x:Name="StatusBar" Height="30" Background="{DynamicResource ChromeBrush}">
+                <Grid ColumnDefinitions="*,Auto" Margin="14,0,8,0">
+                    <TextBlock x:Name="StFile" FontSize="11" VerticalAlignment="Center"
+                               TextTrimming="CharacterEllipsis" Foreground="{DynamicResource MutedBrush}"/>
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
+                        <TextBlock x:Name="StCount" FontSize="11" VerticalAlignment="Center" Margin="0,0,10,0"
+                                   Foreground="{DynamicResource MutedBrush}"/>
+                        <Button x:Name="BtnPos" Classes="status" Click="Pos_Click" ToolTip.Tip="Go to line (Ctrl+G)"/>
+                        <Button x:Name="BtnLang" Classes="status" Click="Lang_Click" ToolTip.Tip="Language"/>
+                        <Button x:Name="BtnEol" Classes="status" Click="Eol_Click" ToolTip.Tip="Line ending"/>
+                        <Button x:Name="BtnEnc" Classes="status" Click="Enc_Click" ToolTip.Tip="Encoding"/>
+                        <Button x:Name="BtnZoom" Classes="status" Click="Zoom_Click" ToolTip.Tip="Zoom (Ctrl+wheel). Click to reset."/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </LayoutTransformControl>
+    </Grid>
+</Window>
