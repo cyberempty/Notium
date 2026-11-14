@@ -21,7 +21,6 @@ public partial class MainWindow : Window
     Highlighter _hl;
     readonly Dictionary<string, Action> _cmd;
     Window _filesWin;
-    static int _untitled = 0;
 
     public MainWindow()
     {
@@ -36,6 +35,9 @@ public partial class MainWindow : Window
             ["save-as"] = () => { if (_cur != null) _ = SaveAs(_cur); },
             ["close-tab"] = () => { if (_cur != null) _ = CloseTab(_cur); },
             ["reopen-tab"] = ReopenClosed,
+            ["bookmark"] = ToggleBookmark, ["bookmark-next"] = () => JumpBookmark(1), ["bookmark-prev"] = () => JumpBookmark(-1),
+            ["pin-tab"] = () => { if (_cur != null) TogglePin(_cur); },
+            ["print"] = PrintCurrent,
             ["next-tab"] = () => SelectOffset(1), ["prev-tab"] = () => SelectOffset(-1),
             ["find"] = () => ShowFind(false), ["replace"] = () => ShowFind(true),
             ["find-next"] = () => FindStep(true), ["find-prev"] = () => FindStep(false),
@@ -62,13 +64,48 @@ public partial class MainWindow : Window
         }, RoutingStrategies.Tunnel);
         Editor.AddHandler(PointerWheelChangedEvent, OnEditorWheel, RoutingStrategies.Tunnel);
         Editor.TextArea.Caret.PositionChanged += (s, e) => UpdateStatus();
+        Editor.TextArea.SelectionChanged += (s, e) => UpdateStatus();
+        Editor.TextArea.TextView.BackgroundRenderers.Add(new BookmarkRenderer(() => _cur));
         AppSettings.Changed += OnSettingsChanged;
         AddHandler(KeyDownEvent, Window_KeyDown, RoutingStrategies.Tunnel);
         Activated += (s, e) => _ = CheckExternalChangesAsync();
         Closing += OnClosing;
+        Fx.SoftDrag(this);
+        var ws = AppSettings.Current;
+        if (ws.RememberWindowSize && ws.WinWidth >= 480 && ws.WinHeight >= 300)
+        {
+            Width = ws.WinWidth; Height = ws.WinHeight;                                  // the size chosen by the user last time
+            if (ws.WinMaximized && !App.Windows.Any(w => w != this)) WindowState = WindowState.Maximized;
+        }
+        if (OperatingSystem.IsWindows())
+        {
+            // one single bar: the tabs sit in the title bar (the system buttons stay on the right)
+            ExtendClientAreaToDecorationsHint = true;
+            ExtendClientAreaChromeHints = Avalonia.Platform.ExtendClientAreaChromeHints.NoChrome;     // we draw the window buttons ourselves
+            ExtendClientAreaTitleBarHeightHint = -1;
+            CaptionBtns.IsVisible = true;
+            PropertyChanged += (s, e) =>
+            {
+                if (e.Property == OffScreenMarginProperty) Root.Margin = OffScreenMargin;
+                if (e.Property == WindowStateProperty)         // the maximize button shows one square, or two when maximized
+                    CapMaxIcon.Data = Geometry.Parse(WindowState == WindowState.Maximized
+                        ? "M2.5,2.5 L2.5,0.5 L9.5,0.5 L9.5,7.5 L7.5,7.5 M0.5,2.5 L7.5,2.5 L7.5,9.5 L0.5,9.5 Z"
+                        : "M0.5,0.5 L9.5,0.5 L9.5,9.5 L0.5,9.5 Z");
+            };
+            TabBar.PointerPressed += TitleBar_PointerPressed;
+        }
         Closed += (s, e) =>
         {
             AppSettings.Changed -= OnSettingsChanged;
+            if (AppSettings.Current.RememberWindowSize)
+            {
+                var st = AppSettings.Current;
+                if (WindowState == WindowState.Maximized) st.WinMaximized = true;
+                else if (WindowState == WindowState.Normal) { st.WinMaximized = false; st.WinWidth = (int)Math.Round(ClientSize.Width); st.WinHeight = (int)Math.Round(ClientSize.Height); }
+            }
+            RememberPos(_cur);
+            foreach (var pt in _tabs) StorePos(pt);
+            AppSettings.Save();
             App.Windows.Remove(this);
             App.CloseIfLast();
         };
@@ -157,8 +194,11 @@ public partial class MainWindow : Window
     public void NewTab()
     {
         var t = new TabDoc();
-        _untitled++;
-        t.Title = _untitled == 1 ? "Untitled" : "Untitled " + _untitled;
+        // the lowest number not in use: closing "Untitled 3" and opening a new tab gives "Untitled 3" again
+        var used = new HashSet<string>(App.Windows.SelectMany(w => w._tabs).Select(x => x.Title));
+        int num = 1;
+        while (used.Contains(num == 1 ? "Untitled" : "Untitled " + num)) num++;
+        t.Title = num == 1 ? "Untitled" : "Untitled " + num;
         t.Dirty = false;
         AddTab(t, true);
     }
@@ -180,6 +220,8 @@ public partial class MainWindow : Window
     {
         int i = _tabs.IndexOf(t);
         if (i < 0) return;
+        if (_cur == t) RememberPos(t);
+        StorePos(t); AppSettings.Save();
         t.Changed -= OnTabChanged;
         _tabs.RemoveAt(i);
         TabPanel.Children.Remove(_views[t]); _views.Remove(t);
@@ -220,6 +262,7 @@ public partial class MainWindow : Window
 
     public async Task CloseTab(TabDoc t, bool prompt = true)
     {
+        if (prompt && t.Pinned) { StFile.Text = "This tab is pinned. Unpin it to close it."; return; }
         if (prompt && !await ConfirmSave(t)) return;
         if (t.Path != null || t.Doc.TextLength > 0) _closed.Push(t);
         RemoveTab(t);
@@ -230,6 +273,144 @@ public partial class MainWindow : Window
         }   // last tab closed: the window (and the program, if last) closes
     }
 
+    void CapMin_Click(object s, RoutedEventArgs e) => WindowState = WindowState.Minimized;
+    void CapMax_Click(object s, RoutedEventArgs e) => WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+    void CapClose_Click(object s, RoutedEventArgs e) => Close();
+
+    // empty space of the tab bar moves the window; double click maximizes it
+    void TitleBar_PointerPressed(object s, PointerPressedEventArgs e)
+    {
+        if (e.Handled || !e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) return;
+        if (e.ClickCount == 2) { WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized; return; }
+        BeginMoveDrag(e);
+    }
+
+    // ------------------------------------------------------------ word count and details
+    async void Count_Click(object s, PointerPressedEventArgs e)
+    {
+        if (_cur == null) return;
+        var d = Editor.Document;
+        string all = d.TextLength <= 20_000_000 ? d.Text : "";
+        string msg = "Document\n" + TextStats.Describe(all, d.LineCount, d.TextLength);
+        if (Editor.SelectionLength > 0)
+        {
+            string sel = Editor.SelectedText;
+            msg += "\n\nSelection\n" + TextStats.Describe(sel, sel.Split('\n').Length, sel.Length);
+        }
+        await MessageDialog.Show(this, msg, "OK");
+    }
+
+    // ------------------------------------------------------------ bookmarks
+    void ToggleBookmark()
+    {
+        if (_cur == null) return;
+        var d = _cur.Doc;
+        int line = Editor.TextArea.Caret.Line;
+        _cur.Bookmarks.RemoveAll(a => a.IsDeleted);
+        var found = _cur.Bookmarks.FirstOrDefault(a => a.Line == line);
+        if (found != null) _cur.Bookmarks.Remove(found);
+        else _cur.Bookmarks.Add(d.CreateAnchor(d.GetLineByNumber(line).Offset));
+        Editor.TextArea.TextView.InvalidateLayer(AvaloniaEdit.Rendering.KnownLayer.Background);
+        StFile.Text = found != null ? "Bookmark removed." : "Bookmark added. F2 goes to the next one.";
+    }
+
+    void JumpBookmark(int dir)
+    {
+        if (_cur == null) return;
+        _cur.Bookmarks.RemoveAll(a => a.IsDeleted);
+        var lines = _cur.Bookmarks.Select(a => a.Line).Distinct().OrderBy(n => n).ToList();
+        if (lines.Count == 0) { StFile.Text = "No bookmarks in this document. Ctrl+F2 adds one."; return; }
+        int cur = Editor.TextArea.Caret.Line;
+        int target = dir > 0 ? lines.FirstOrDefault(n => n > cur) : lines.LastOrDefault(n => n < cur);
+        if (target == 0) target = dir > 0 ? lines[0] : lines[^1];       // wrap around
+        GoToLine(target);
+    }
+
+    void ClearBookmarks()
+    {
+        if (_cur == null) return;
+        _cur.Bookmarks.Clear();
+        Editor.TextArea.TextView.InvalidateLayer(AvaloniaEdit.Rendering.KnownLayer.Background);
+    }
+
+    // ------------------------------------------------------------ remembered position of each file
+    void RememberPos(TabDoc t)
+    {
+        if (t == null || !ReferenceEquals(Editor.Document, t.Doc)) return;
+        t.SavedOffset = Math.Clamp(Editor.CaretOffset, 0, t.Doc.TextLength);
+    }
+
+    static void StorePos(TabDoc t)
+    {
+        if (t.Path == null || t.SavedOffset < 0) return;
+        var map = AppSettings.Current.FilePositions;
+        map.Remove(t.Path);
+        map[t.Path] = t.SavedOffset;
+        while (map.Count > 300) map.Remove(map.Keys.First());
+    }
+
+    // ------------------------------------------------------------ clean up when saving
+    void CleanBeforeSave(TabDoc t)
+    {
+        var s = AppSettings.Current;
+        if (!s.CleanOnSave) return;
+        string text = t.Doc.Text, r = text;
+        if (s.CleanTrailing && t.Language != "markdown") r = TextClean.TrimTrailing(r);
+        if (s.CleanDoubleSpaces) r = TextClean.DoubleSpaces(r);
+        if (s.CleanTabsToSpaces) r = TextClean.TabsToSpaces(r, s.TabSize);
+        if (s.CleanBlankLines) r = TextClean.ExtraBlankLines(r);
+        if (r != text) DocEdit.ReplaceMinimal(t.Doc, r);
+    }
+
+    // ------------------------------------------------------------ tab menu helpers
+    async Task CopyPath(TabDoc t)
+    {
+        if (t.Path == null) return;
+        try { if (Clipboard != null) await Clipboard.SetTextAsync(t.Path); StFile.Text = "Path copied."; } catch { }
+    }
+
+    static void RevealInFolder(string path)
+    {
+        try
+        {
+            if (path == null) return;
+            if (OperatingSystem.IsWindows()) System.Diagnostics.Process.Start("explorer.exe", "/select,\"" + path + "\"");
+            else if (OperatingSystem.IsMacOS()) System.Diagnostics.Process.Start("open", new[] { "-R", path });
+            else System.Diagnostics.Process.Start("xdg-open", Path.GetDirectoryName(path) ?? "/");
+        }
+        catch { }
+    }
+
+    void TogglePin(TabDoc t)
+    {
+        t.Pinned = !t.Pinned;
+        int old = _tabs.IndexOf(t);
+        _tabs.RemoveAt(old);
+        int to = _tabs.Count(x => x.Pinned);          // end of the pinned group (t itself is out of the list now)
+        _tabs.Insert(to, t);
+        if (to != old) TabPanel.Children.Move(old, to);
+        RefreshTabs();
+    }
+
+    // ------------------------------------------------------------ print with preview
+    /// <summary>Opens the document as a clean page in the default browser, whose print dialog shows the preview.</summary>
+    void PrintCurrent()
+    {
+        if (_cur == null) return;
+        try
+        {
+            string dir = AppSettings.DataWritable ? System.IO.Path.Combine(AppSettings.DataDir, "print") : System.IO.Path.GetTempPath();
+            Directory.CreateDirectory(dir);
+            foreach (var old in Directory.GetFiles(dir, "notium-print-*.html"))          // tidy up earlier print pages
+                try { if (File.GetLastWriteTimeUtc(old) < DateTime.UtcNow.AddHours(-1)) File.Delete(old); } catch { }
+            string file = System.IO.Path.Combine(dir, "notium-print-" + Guid.NewGuid().ToString("N").Substring(0, 8) + ".html");
+            File.WriteAllText(file, Printer.BuildHtml(_cur.Title, _cur.Doc.Text, AppSettings.Current.ShowLineNumbers), new System.Text.UTF8Encoding(false));
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo { FileName = file, UseShellExecute = true });
+            StFile.Text = "Print preview opened in your browser.";
+        }
+        catch (Exception ex) { StFile.Text = "Could not open the print preview: " + ex.Message; }
+    }
+
     public void ReopenClosed()
     {
         if (_closed.Count > 0) AddTab(_closed.Pop(), true);
@@ -237,8 +418,21 @@ public partial class MainWindow : Window
 
     public void SelectTab(TabDoc t)
     {
+        if (_cur != null && _cur != t) RememberPos(_cur);
         _cur = t;
         Editor.Document = t.Doc;
+        if (!t.PosLoaded)
+        {
+            t.PosLoaded = true;
+            if (t.SavedOffset < 0 && t.Path != null && AppSettings.Current.FilePositions.TryGetValue(t.Path, out int po)) t.SavedOffset = po;
+        }
+        if (t.SavedOffset >= 0)
+        {
+            int off = Math.Min(t.SavedOffset, t.Doc.TextLength);
+            Editor.CaretOffset = off;
+            var loc = t.Doc.GetLocation(off);
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => Editor.ScrollTo(loc.Line, loc.Column), Avalonia.Threading.DispatcherPriority.Loaded);
+        }
         ApplyLanguage();
         RefreshTabs();
         UpdateStatus();
@@ -268,10 +462,25 @@ public partial class MainWindow : Window
         close.Click += async (s, e) => { e.Handled = true; await CloseTab(t); };
         var line = new Border { Height = 2, Width = 18, VerticalAlignment = VerticalAlignment.Bottom, HorizontalAlignment = HorizontalAlignment.Center, CornerRadius = new CornerRadius(1), Margin = new Thickness(0, 0, 0, 2) };
         var sp = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(12, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center };
-        sp.Children.Add(title); sp.Children.Add(dot); sp.Children.Add(close);
+        var pin = new Avalonia.Controls.Shapes.Path { StrokeThickness = 1.3, StrokeJoin = PenLineJoin.Round, Margin = new Thickness(6, 0, 4, 0), VerticalAlignment = VerticalAlignment.Center, Data = Geometry.Parse("M2.5,0.5 L7.5,0.5 L7,4 L9,6.5 L1,6.5 L3,4 Z M5,6.5 L5,10.5") };
+        sp.Children.Add(title); sp.Children.Add(dot); sp.Children.Add(close); sp.Children.Add(pin);
         var g = new Grid(); g.Children.Add(sp); g.Children.Add(line);
         var b = new Border { Child = g, Height = 30, MinWidth = 100, MaxWidth = 230, CornerRadius = new CornerRadius(8), Margin = new Thickness(0, 0, 4, 0), VerticalAlignment = VerticalAlignment.Center, Tag = t, Background = Brushes.Transparent };
+        b.Transitions = new Avalonia.Animation.Transitions { new Avalonia.Animation.DoubleTransition { Property = Visual.OpacityProperty, Duration = TimeSpan.FromMilliseconds(120) } };
         b.PointerPressed += TabDown; b.PointerMoved += TabMove; b.PointerReleased += TabUp;
+        var pinItem = new MenuItem(); var closeItem = new MenuItem { Header = "Close" };
+        var copyItem = new MenuItem { Header = "Copy path" }; var folderItem = new MenuItem { Header = "Open containing folder" };
+        pinItem.Click += (s, e) => TogglePin(t);
+        closeItem.Click += (s, e) => _ = CloseTab(t);
+        copyItem.Click += (s, e) => _ = CopyPath(t);
+        folderItem.Click += (s, e) => RevealInFolder(t.Path);
+        var tabMenu = new ContextMenu { Items = { pinItem, copyItem, folderItem, new Separator(), closeItem } };
+        tabMenu.Opening += (s, e) =>
+        {
+            pinItem.Header = t.Pinned ? "Unpin tab" : "Pin tab"; closeItem.IsEnabled = !t.Pinned;
+            copyItem.IsEnabled = folderItem.IsEnabled = t.Path != null;       // a new, unsaved document has no path yet
+        };
+        b.ContextMenu = tabMenu;
         b.PointerEntered += (s, e) => { _hover = t; RefreshTabs(); };
         b.PointerExited += (s, e) => { if (_hover == t) _hover = null; RefreshTabs(); };
         return b;
@@ -286,6 +495,10 @@ public partial class MainWindow : Window
             b.Background = act ? Res("ActiveTabBrush") : (t == _hover ? Res("HoverBrush") : Brushes.Transparent);
             var g = (Grid)b.Child; var sp = (StackPanel)g.Children[0]; var line = (Border)g.Children[1];
             var title = (TextBlock)sp.Children[0]; var dot = (Avalonia.Controls.Shapes.Ellipse)sp.Children[1]; var close = (Button)sp.Children[2];
+            var pin = (Avalonia.Controls.Shapes.Path)sp.Children[3];
+            pin.IsVisible = t.Pinned; pin.Stroke = act ? Res("TextBrush") : Res("MutedBrush");
+            close.IsVisible = !t.Pinned;
+            b.MinWidth = t.Pinned ? 64 : 100; title.MaxWidth = t.Pinned ? 100 : 150;
             title.Text = t.Title; ToolTip.SetTip(title, t.Path ?? t.Title);
             title.Foreground = act ? Res("TextBrush") : Res("MutedBrush");
             dot.IsVisible = t.Dirty; dot.Fill = Res("AccentBrush");
@@ -299,7 +512,7 @@ public partial class MainWindow : Window
     }
 
     // ---- tab dragging (reorder, detach into a new window, move to another window)
-    TabDoc _dragTab; bool _dragging; Point _dragStart;
+    TabDoc _dragTab; bool _dragging; Point _dragStart; double _grabX; TabGhost _ghost;
 
     void TabDown(object s, PointerPressedEventArgs e)
     {
@@ -308,7 +521,7 @@ public partial class MainWindow : Window
         var t = (TabDoc)v.Tag;
         if (props.IsMiddleButtonPressed) { _ = CloseTab(t); e.Handled = true; return; }
         if (!props.IsLeftButtonPressed) return;
-        _dragTab = t; _dragging = false; _dragStart = e.GetPosition(this);
+        _dragTab = t; _dragging = false; _dragStart = e.GetPosition(this); _grabX = e.GetPosition(v).X;
         SelectTab(t);
         e.Pointer.Capture(v);
         e.Handled = true;
@@ -321,7 +534,23 @@ public partial class MainWindow : Window
         if (!_dragging && (Math.Abs(p.X - _dragStart.X) > 6 || Math.Abs(p.Y - _dragStart.Y) > 6)) _dragging = true;
         if (!_dragging) return;
         var pt = e.GetPosition(TabPanel);
-        if (pt.Y < -20 || pt.Y > 60) return;
+        _views.TryGetValue(_dragTab, out var dragView);
+        if (dragView != null)
+        {
+            dragView.Opacity = 0.55;                      // the tab being dragged turns see-through...
+            dragView.ZIndex = 10;
+            dragView.RenderTransform = new TranslateTransform(pt.X - _grabX - dragView.Bounds.X, 0);   // ...and follows the mouse
+        }
+        bool outside = pt.Y < -20 || pt.Y > 60;
+        if (outside)
+        {
+            // like on Windows: a small label with the tab name follows the mouse while the tab is out of the bar
+            var sp = this.PointToScreen(e.GetPosition(this));
+            _ghost ??= TabGhost.Open(_dragTab.Title);
+            _ghost.Position = new PixelPoint(sp.X + 14, sp.Y + 18);
+            return;
+        }
+        CloseGhost();
         double x = 0; int target = _tabs.Count - 1;
         for (int i = 0; i < _tabs.Count; i++)
         {
@@ -329,18 +558,26 @@ public partial class MainWindow : Window
             if (pt.X < x + w) { target = i; break; }
             x += w;
         }
+        int pinned = _tabs.Count(tb => tb.Pinned);
+        target = _dragTab.Pinned ? Math.Min(target, pinned - 1) : Math.Max(target, pinned);     // pinned tabs stay in their own group
         int idx = _tabs.IndexOf(_dragTab);
         if (target != idx)
         {
             _tabs.RemoveAt(idx); _tabs.Insert(target, _dragTab);
             TabPanel.Children.Move(idx, target);
+            TabPanel.UpdateLayout();
+            if (dragView != null) dragView.RenderTransform = new TranslateTransform(pt.X - _grabX - dragView.Bounds.X, 0);
         }
     }
+
+    void CloseGhost() { _ghost?.Close(); _ghost = null; }
 
     void TabUp(object s, PointerReleasedEventArgs e)
     {
         e.Pointer.Capture(null);
+        CloseGhost();
         var t = _dragTab; bool was = _dragging; _dragTab = null; _dragging = false;
+        if (t != null && _views.TryGetValue(t, out var droppedView)) { droppedView.Opacity = 1; droppedView.ZIndex = 0; droppedView.RenderTransform = null; }
         if (!was || t == null) return;
 
         PixelPoint screen = this.PointToScreen(e.GetPosition(this));
@@ -438,7 +675,10 @@ public partial class MainWindow : Window
         if (_cur == null) return;
         StFile.Text = "";            // the modified dot lives on the tab itself
         var car = Editor.TextArea.Caret;
-        StCount.Text = $"{Editor.Document.LineCount} lines   {Editor.Document.TextLength} characters";
+        var doc = Editor.Document;
+        string words = doc.TextLength <= 2_000_000 ? TextStats.Words(doc.Text).ToString() : "-";
+        StCount.Text = $"{doc.LineCount} lines   {words} words   {doc.TextLength} characters"
+                       + (Editor.SelectionLength > 0 ? $"   ({Editor.SelectionLength} selected)" : "");
         BtnPos.Content = $"Ln {car.Line}, Col {car.Column}";
         BtnLang.Content = Syntax.Display(_cur.Language);
         BtnEol.Content = _cur.Eol;
@@ -671,6 +911,7 @@ public partial class MainWindow
     public async Task<bool> SaveTab(TabDoc t)
     {
         if (t.Path == null) return await SaveAs(t);
+        CleanBeforeSave(t);
         try { t.Save(); }
         catch (Exception e) { await MessageDialog.Error(this, "Saving failed:\n" + e.Message); return false; }
         t.RaiseChanged();
@@ -700,6 +941,7 @@ public partial class MainWindow
         string path = f?.TryGetLocalPath();
         if (path == null) return false;
         if (string.IsNullOrEmpty(Path.GetExtension(path))) path += "." + ext;
+        CleanBeforeSave(t);
         try { t.Save(path); }
         catch (Exception e) { await MessageDialog.Error(this, "Saving failed:\n" + e.Message); return false; }
         AddRecent(path);
@@ -747,6 +989,12 @@ public partial class MainWindow
         t.Items.Add(Mi("Remove duplicate lines", () => Transform(LineOp(l => l.Distinct()), true)));
         t.Items.Add(Mi("Remove empty lines", () => Transform(LineOp(l => l.Where(x => x.Trim().Length > 0)), true)));
         t.Items.Add(Mi("Trim trailing spaces", () => Transform(LineOp(l => l.Select(x => x.TrimEnd(' ', '\t', '\r'))), true)));
+        t.Items.Add(new Separator());
+        t.Items.Add(Mi("Remove double spaces", () => Transform(TextClean.DoubleSpaces, true)));
+        t.Items.Add(Mi("Keep at most one empty line in a row", () => Transform(s => TextClean.ExtraBlankLines(TextClean.TrimTrailing(s)), true)));
+        t.Items.Add(Mi("Tabs to spaces", () => Transform(s => TextClean.TabsToSpaces(s, AppSettings.Current.TabSize), true)));
+        t.Items.Add(Mi("Spaces to tabs (indentation)", () => Transform(s => TextClean.SpacesToTabs(s, AppSettings.Current.TabSize), true)));
+        t.Items.Add(Mi("Capitalize sentences", () => Transform(TextClean.SmartCase, false)));
         return t;
     }
 
@@ -777,9 +1025,11 @@ public partial class MainWindow
         file.Items.Add(new Separator());
         file.Items.Add(Mi("Save", () => { if (_cur != null) _ = SaveTab(_cur); }, K("save")));
         file.Items.Add(Mi("Save as...", () => { if (_cur != null) _ = SaveAs(_cur); }, K("save-as")));
+        file.Items.Add(Mi("Print... (preview)", PrintCurrent, K("print")));
         file.Items.Add(new Separator());
         file.Items.Add(Mi("Close tab", () => { if (_cur != null) _ = CloseTab(_cur); }, K("close-tab")));
         file.Items.Add(Mi("Reopen closed tab", ReopenClosed, K("reopen-tab")));
+        file.Items.Add(Mi("Pin / unpin tab", () => { if (_cur != null) TogglePin(_cur); }, K("pin-tab")));
         file.Items.Add(new Separator());
         file.Items.Add(Mi("Exit", () => _ = ExitAllAsync()));
         m.Items.Add(file);
@@ -795,8 +1045,14 @@ public partial class MainWindow
         edit.Items.Add(new Separator());
         edit.Items.Add(Mi("Find...", () => ShowFind(false), K("find")));
         edit.Items.Add(Mi("Replace...", () => ShowFind(true), K("replace")));
-        edit.Items.Add(Mi("Find in files...", ShowFindInFiles, K("find-in-files")));
+        edit.Items.Add(Mi("Find and replace in files...", ShowFindInFiles, K("find-in-files")));
         edit.Items.Add(Mi("Go to line...", () => _ = GoToLineAsync(), K("goto-line")));
+        var bm = new MenuItem { Header = "Bookmarks" };
+        bm.Items.Add(Mi("Toggle bookmark", ToggleBookmark, K("bookmark")));
+        bm.Items.Add(Mi("Next bookmark", () => JumpBookmark(1), K("bookmark-next")));
+        bm.Items.Add(Mi("Previous bookmark", () => JumpBookmark(-1), K("bookmark-prev")));
+        bm.Items.Add(Mi("Clear bookmarks of this document", ClearBookmarks));
+        edit.Items.Add(bm);
         edit.Items.Add(new Separator());
         edit.Items.Add(Mi("Duplicate line", DuplicateLine, K("duplicate-line")));
         edit.Items.Add(Mi("Delete line", DeleteLine, K("delete-line")));

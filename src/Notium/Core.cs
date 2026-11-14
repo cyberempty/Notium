@@ -67,6 +67,17 @@ public class AppSettings
     public List<string> Recent { get; set; } = new();
     public bool RestoreSession { get; set; } = true;
     public bool BackupOnSave { get; set; } = false;
+    // clean-up when saving (on by default; every part can be switched off in Settings > Files and saving)
+    public bool RememberWindowSize { get; set; } = true;
+    public int WinWidth { get; set; } = 0;                  // size of the main window when it was last closed
+    public int WinHeight { get; set; } = 0;
+    public bool WinMaximized { get; set; } = false;
+    public bool CleanOnSave { get; set; } = true;
+    public bool CleanTrailing { get; set; } = true;
+    public bool CleanBlankLines { get; set; } = true;
+    public bool CleanDoubleSpaces { get; set; } = false;
+    public bool CleanTabsToSpaces { get; set; } = false;
+    public Dictionary<string, int> FilePositions { get; set; } = new();      // last caret position of each file
     public bool AutoReload { get; set; } = true;
     public bool ShowSidebar { get; set; } = false;
     public Dictionary<string, string> KeyMap { get; set; } = new();   // only the shortcuts the user changed
@@ -147,8 +158,10 @@ public static class Keymap
         new("open", "Open file", "Ctrl+O"),
         new("save", "Save", "Ctrl+S"),
         new("save-as", "Save as", "Ctrl+Shift+S"),
+        new("print", "Print (preview)", "Ctrl+P"),
         new("close-tab", "Close tab", "Ctrl+W"),
         new("reopen-tab", "Reopen closed tab", "Ctrl+Shift+T"),
+        new("pin-tab", "Pin / unpin tab", "Ctrl+Shift+P"),
         new("next-tab", "Next tab", "Ctrl+Tab"),
         new("prev-tab", "Previous tab", "Ctrl+Shift+Tab"),
         new("find", "Find", "Ctrl+F"),
@@ -157,6 +170,9 @@ public static class Keymap
         new("find-prev", "Previous result", "Shift+F3"),
         new("find-in-files", "Find in files", "Ctrl+Shift+F"),
         new("goto-line", "Go to line", "Ctrl+G"),
+        new("bookmark", "Toggle bookmark", "Ctrl+F2"),
+        new("bookmark-next", "Next bookmark", "F2"),
+        new("bookmark-prev", "Previous bookmark", "Shift+F2"),
         new("move-up", "Move line up", "Alt+Up"),
         new("move-down", "Move line down", "Alt+Down"),
         new("comment", "Toggle comment", "Ctrl+/"),
@@ -326,6 +342,7 @@ public class SessionTab
     public string Language { get; set; }
     public string Encoding { get; set; }
     public string Eol { get; set; }
+    public bool Pinned { get; set; }
 }
 
 public static class Session
@@ -343,7 +360,7 @@ public static class Session
                 if (t.Path == null && t.Doc.TextLength == 0) continue;
                 list.Add(new SessionTab
                 {
-                    Path = t.Path, Title = t.Title, Dirty = t.Dirty, Language = t.Language, Encoding = t.Encoding, Eol = t.Eol,
+                    Path = t.Path, Title = t.Title, Dirty = t.Dirty, Language = t.Language, Encoding = t.Encoding, Eol = t.Eol, Pinned = t.Pinned,
                     Text = t.Path == null || t.Dirty ? t.Doc.Text : null
                 });
             }
@@ -371,7 +388,7 @@ public static class Session
                 {
                     if (st.Text == null)
                     {
-                        if (st.Path != null && File.Exists(st.Path)) res.Add(TabDoc.FromFile(st.Path));
+                        if (st.Path != null && File.Exists(st.Path)) { var ft = TabDoc.FromFile(st.Path); ft.Pinned = st.Pinned; res.Add(ft); }
                         continue;
                     }
                     var t = new TabDoc
@@ -380,7 +397,7 @@ public static class Session
                         Encoding = st.Encoding ?? AppSettings.Current.DefaultEncoding, Eol = st.Eol ?? AppSettings.Current.DefaultLineEnding
                     };
                     t.SetText(st.Text);
-                    t.Dirty = st.Dirty;
+                    t.Dirty = st.Dirty; t.Pinned = st.Pinned;
                     if (st.Path != null && File.Exists(st.Path)) t.DiskTime = File.GetLastWriteTimeUtc(st.Path);
                     res.Add(t);
                 }
@@ -712,6 +729,10 @@ public class TabDoc
     public string Encoding { get; set; } = AppSettings.Current.DefaultEncoding;
     public string Eol { get; set; } = AppSettings.Current.DefaultLineEnding;
     public string Language { get; set; } = Syntax.Plain;
+    public bool Pinned;
+    public List<AvaloniaEdit.Document.TextAnchor> Bookmarks = new();
+    public int SavedOffset = -1;       // caret position to come back to
+    public bool PosLoaded;                // pinned tabs stay at the left and cannot be closed by accident
     public bool LangManual;            // the user picked the language: stop guessing it from the text
     public bool Dirty { get; set; }
     public DateTime DiskTime { get; set; }
@@ -933,7 +954,7 @@ public class FindInFilesWindow : Window
 {
     const int Max = 2000;
     readonly MainWindow _owner;
-    readonly TextBox _q, _filter, _folder;
+    readonly TextBox _q, _filter, _folder, _repl;
     readonly CheckBox _case, _regex;
     readonly ComboBox _scope;
     readonly ListBox _list;
@@ -943,7 +964,7 @@ public class FindInFilesWindow : Window
     public FindInFilesWindow(MainWindow owner)
     {
         _owner = owner;
-        Title = "Find in files - Notium"; Width = 780; Height = 540; MinWidth = 520; MinHeight = 320;
+        Title = "Find and replace in files - Notium"; Width = 780; Height = 580; MinWidth = 520; MinHeight = 320;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         var c = AppSettings.Current.Colors;
         Background = ThemeColors.B(c.Background); Foreground = ThemeColors.B(c.Text);
@@ -977,6 +998,13 @@ public class FindInFilesWindow : Window
         var row3 = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 8) };
         row3.Children.Add(_case); row3.Children.Add(_regex);
 
+        _repl = new TextBox { Watermark = "Replace with... (then press the button to see the preview)" };
+        var replBtn = new Button { Content = "Replace all...", MinWidth = 120, HorizontalContentAlignment = HorizontalAlignment.Center };
+        replBtn.Click += (s, e) => _ = ReplaceAllAsync();
+        var row4 = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), Margin = new Thickness(0, 0, 0, 8) };
+        row4.Children.Add(_repl);
+        Grid.SetColumn(replBtn, 1); replBtn.Margin = new Thickness(8, 0, 0, 0); row4.Children.Add(replBtn);
+
         _list = new ListBox { Background = Brushes.Transparent, FontFamily = new FontFamily(AppSettings.FontFallback) };
         _list.DoubleTapped += async (s, e) =>
         {
@@ -984,15 +1012,167 @@ public class FindInFilesWindow : Window
         };
         _info = new TextBlock { Margin = new Thickness(0, 8, 0, 0), Opacity = 0.7, FontSize = 12, Text = "Double-click a result to open it." };
 
-        var g = new Grid { RowDefinitions = new RowDefinitions("Auto,Auto,Auto,*,Auto"), Margin = new Thickness(18) };
+        var g = new Grid { RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto,*,Auto"), Margin = new Thickness(18) };
         g.Children.Add(row1);
         Grid.SetRow(row2, 1); g.Children.Add(row2);
         Grid.SetRow(row3, 2); g.Children.Add(row3);
-        Grid.SetRow(_list, 3); g.Children.Add(_list);
-        Grid.SetRow(_info, 4); g.Children.Add(_info);
+        Grid.SetRow(row4, 3); g.Children.Add(row4);
+        Grid.SetRow(_list, 4); g.Children.Add(_list);
+        Grid.SetRow(_info, 5); g.Children.Add(_info);
         Content = g;
         Opened += (s, e) => { _q.Focus(); };
         Closed += (s, e) => _cts?.Cancel();
+    }
+
+    // ---------------------------------------------------------------- replace in many files, with a preview first
+    sealed class FileChange
+    {
+        public TabDoc Tab; public string Path, NewText, Encoding, Eol;
+        public int Count;
+        public List<(string oldLine, string newLine)> Samples = new();
+    }
+
+    static FileChange BuildChange(string text, Regex rx, string rep)
+    {
+        int n = rx.Matches(text).Count;
+        if (n == 0) return null;
+        var ch = new FileChange { Count = n, NewText = rx.Replace(text, rep) };
+        foreach (var line in text.Split('\n'))
+        {
+            if (ch.Samples.Count >= 3) break;
+            if (!rx.IsMatch(line)) continue;
+            string o = line.Trim(), nw = rx.Replace(line, rep).Trim();
+            ch.Samples.Add((o.Length > 160 ? o.Substring(0, 160) + "..." : o, nw.Length > 160 ? nw.Substring(0, 160) + "..." : nw));
+        }
+        return ch;
+    }
+
+    static List<string> ListFiles(string root, string filter, CancellationToken ct)
+    {
+        var pats = (string.IsNullOrWhiteSpace(filter) ? "*" : filter).Split(new[] { ';', ',', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+        var res = new List<string>();
+        var stack = new Stack<string>();
+        stack.Push(root);
+        while (stack.Count > 0 && res.Count < 20000)
+        {
+            ct.ThrowIfCancellationRequested();
+            string dir = stack.Pop();
+            try
+            {
+                foreach (var d in Directory.EnumerateDirectories(dir))
+                {
+                    string dn = System.IO.Path.GetFileName(d);
+                    if (dn.StartsWith('.') || dn == "node_modules" || dn == "bin" || dn == "obj") continue;
+                    stack.Push(d);
+                }
+                foreach (var f in Directory.EnumerateFiles(dir))
+                    if (pats.Any(p => FileSystemName.MatchesSimpleExpression(p, System.IO.Path.GetFileName(f), true))) res.Add(f);
+            }
+            catch (UnauthorizedAccessException) { }
+            catch (IOException) { }
+        }
+        return res;
+    }
+
+    static List<FileChange> CollectFolder(string root, string filter, Regex rx, string rep, HashSet<string> skip, CancellationToken ct)
+    {
+        var res = new List<FileChange>();
+        foreach (var f in ListFiles(root, filter, ct))
+        {
+            ct.ThrowIfCancellationRequested();
+            if (res.Count >= 2000) break;
+            if (skip.Contains(f)) continue;
+            try
+            {
+                if (new FileInfo(f).Length > 5_000_000) continue;
+                byte[] b = File.ReadAllBytes(f);
+                bool bin = false;
+                for (int i = 0, mx = Math.Min(b.Length, 4096); i < mx; i++) if (b[i] == 0) { bin = true; break; }
+                if (bin) continue;
+                var lf = TabDoc.Read(f);
+                var ch = BuildChange(lf.Text, rx, rep);
+                if (ch == null) continue;
+                ch.Path = f; ch.Encoding = lf.Encoding; ch.Eol = lf.Eol;
+                res.Add(ch);
+            }
+            catch { }
+        }
+        return res;
+    }
+
+    async Task ReplaceAllAsync()
+    {
+        string pat = _q.Text;
+        if (string.IsNullOrEmpty(pat)) { _info.Text = "Type what to search for first."; return; }
+        Regex rx;
+        try { rx = new Regex(_regex.IsChecked == true ? pat : Regex.Escape(pat), _case.IsChecked == true ? RegexOptions.None : RegexOptions.IgnoreCase); }
+        catch { _info.Text = "Invalid expression"; return; }
+        string repl = _repl.Text ?? "";
+        string rep = _regex.IsChecked == true ? repl : repl.Replace("$", "$$");      // without regular expressions, "$" is just a character
+
+        _cts?.Cancel(); _cts = new CancellationTokenSource(); var ct = _cts.Token;
+        _info.Text = "Preparing the preview...";
+        var changes = new List<FileChange>();
+        try
+        {
+            if (_scope.SelectedIndex == 0)
+            {
+                foreach (var t in _owner.Tabs.ToList())
+                {
+                    var ch = BuildChange(t.Doc.Text, rx, rep);
+                    if (ch != null) { ch.Tab = t; ch.Path = t.Path; changes.Add(ch); }
+                }
+            }
+            else
+            {
+                string folder = _folder.Text?.Trim();
+                if (string.IsNullOrEmpty(folder) || !Directory.Exists(folder)) { _info.Text = "Choose an existing folder."; return; }
+                string filter = _filter.Text;
+                var openPaths = new HashSet<string>(_owner.Tabs.Where(t => t.Path != null).Select(t => t.Path), StringComparer.OrdinalIgnoreCase);
+                changes.AddRange(await Task.Run(() => CollectFolder(folder, filter, rx, rep, openPaths, ct), ct));
+                // files that are open in a tab are changed in the tab (so unsaved work is never lost)
+                var pats = (string.IsNullOrWhiteSpace(filter) ? "*" : filter).Split(new[] { ';', ',', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                foreach (var t in _owner.Tabs.ToList())
+                {
+                    if (t.Path == null || !t.Path.StartsWith(folder, StringComparison.OrdinalIgnoreCase)) continue;
+                    if (!pats.Any(p => FileSystemName.MatchesSimpleExpression(p, System.IO.Path.GetFileName(t.Path), true))) continue;
+                    var ch = BuildChange(t.Doc.Text, rx, rep);
+                    if (ch != null) { ch.Tab = t; ch.Path = t.Path; changes.Add(ch); }
+                }
+            }
+        }
+        catch (OperationCanceledException) { return; }
+        catch (Exception ex) { _info.Text = ex.Message; return; }
+
+        if (changes.Count == 0) { _info.Text = "Nothing to replace."; return; }
+        int total = changes.Sum(x => x.Count);
+        string summary = $"{total} replacement{(total == 1 ? "" : "s")} in {changes.Count} file{(changes.Count == 1 ? "" : "s")}.";
+        var preview = new List<(string text, int kind)>();
+        foreach (var ch in changes.Take(300))
+        {
+            string name = ch.Path ?? ch.Tab?.Title ?? "";
+            preview.Add(((ch.Tab != null ? "[open tab] " : "") + name + "   (" + ch.Count + ")", 0));
+            foreach (var (o, n) in ch.Samples) { preview.Add(("-  " + o, 1)); preview.Add(("+  " + n, 2)); }
+        }
+        if (changes.Count > 300) preview.Add(($"... and {changes.Count - 300} more files", 0));
+        string note = changes.Any(x => x.Tab != null) ? "Open tabs are changed but not saved: you can undo with Ctrl+Z. Files on disk are changed immediately." : "The files on disk are changed immediately. There is no undo.";
+        if (!await ReplacePreviewDialog.Ask(this, summary, note, preview)) { _info.Text = "Replace cancelled."; return; }
+
+        int done = 0, failed = 0;
+        foreach (var ch in changes.Where(x => x.Tab != null)) { DocEdit.ReplaceMinimal(ch.Tab.Doc, ch.NewText); done++; }
+        var disk = changes.Where(x => x.Tab == null).ToList();
+        if (disk.Count > 0)
+        {
+            int ok = await Task.Run(() =>
+            {
+                int n2 = 0;
+                foreach (var ch in disk) { try { DocEdit.WriteFile(ch.Path, ch.NewText, ch.Encoding, ch.Eol); n2++; } catch { } }
+                return n2;
+            });
+            done += ok; failed = disk.Count - ok;
+        }
+        _list.Items.Clear();
+        _info.Text = $"Replaced {total} occurrence{(total == 1 ? "" : "s")} in {done} file{(done == 1 ? "" : "s")}." + (failed > 0 ? $" {failed} file(s) could not be written." : "");
     }
 
     async Task RunAsync()
@@ -1190,6 +1370,7 @@ public class SettingsWindow : Window
     {
         Title = "Settings - Notium"; Width = 950; Height = 640; MinWidth = 700; MinHeight = 450;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        Fx.SoftDrag(this);
         Icon = new WindowIcon(Avalonia.Platform.AssetLoader.Open(new Uri("avares://Notium.App/Assets/notium.png")));
 
         var pages = new (string name, Func<Control> build)[]
@@ -1504,7 +1685,13 @@ public class SettingsWindow : Window
             Toggle("Restore tabs on start", "Reopen the tabs (and unsaved text) that were open when you quit. On by default", S.RestoreSession, v => { S.RestoreSession = v; if (!v) Session.Clear(); }),
             Toggle("Reload changed files automatically", "Files modified by another program reload by themselves unless you edited them here", S.AutoReload, v => S.AutoReload = v),
             Toggle("Keep a backup when saving", "Copies the old file to name.ext.bak before overwriting it", S.BackupOnSave, v => S.BackupOnSave = v)));
-        p.Children.Add(Info("Files are saved through a temporary file, so the original is never left half-written. New documents are .txt: to save another type (.py, .js, .html, ...) just type the extension in the file name."));
+        p.Children.Add(Card(
+            Toggle("Clean up text when saving", "Applies the options below every time a file is saved. On by default", S.CleanOnSave, v => S.CleanOnSave = v),
+            Toggle("Remove spaces at the end of lines", "Not applied to Markdown, where they mean a line break", S.CleanTrailing, v => S.CleanTrailing = v),
+            Toggle("Keep at most one empty line in a row", "Several empty lines in a row become one", S.CleanBlankLines, v => S.CleanBlankLines = v),
+            Toggle("Remove double spaces inside lines", "Indentation is kept. Off by default: it can change aligned text and code", S.CleanDoubleSpaces, v => S.CleanDoubleSpaces = v),
+            Toggle("Convert tabs to spaces", "Off by default. Not good for Makefiles", S.CleanTabsToSpaces, v => S.CleanTabsToSpaces = v)));
+        p.Children.Add(Info("The same actions are always available by hand in Edit > Transform. Files are saved through a temporary file, so the original is never left half-written. New documents are .txt: to save another type (.py, .js, .html, ...) just type the extension in the file name."));
         return p;
     }
 
@@ -1568,7 +1755,8 @@ public class SettingsWindow : Window
         var p = Page("Windows and panels");
         p.Children.Add(Card(
             Toggle("Status bar", "Position, language, line ending, encoding and zoom; each one is clickable", S.ShowStatusBar, v => S.ShowStatusBar = v),
-            Toggle("Folder panel", "Files of a folder and recent documents (Ctrl+B)", S.ShowSidebar, v => S.ShowSidebar = v)));
+            Toggle("Folder panel", "Files of a folder and recent documents (Ctrl+B)", S.ShowSidebar, v => S.ShowSidebar = v),
+            Toggle("Remember the window size", "Notium opens with the size you left it, saved in the data folder", S.RememberWindowSize, v => S.RememberWindowSize = v)));
         p.Children.Add(Info("You can open several windows with Ctrl+Shift+N. The X closes only the window where you press it; closing the last one closes the program. Drag a tab out of the tab bar to detach it into a new window, or onto the tab bar of another window to move it."));
         return p;
     }
@@ -1758,11 +1946,262 @@ namespace Notium
     /// <summary>Tiny fade-in used by dialogs, settings pages and the find panel. Never used on hover, to avoid flicker.</summary>
     public static class Fx
     {
+        /// <summary>While a window is being dragged it becomes slightly transparent, and returns to normal a moment after it stops.</summary>
+        public static void SoftDrag(Window w)
+        {
+            w.Transitions = new Transitions { new DoubleTransition { Property = Visual.OpacityProperty, Duration = TimeSpan.FromMilliseconds(120) } };
+            var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(220) };
+            timer.Tick += (s, e) => { timer.Stop(); w.Opacity = 1; };
+            w.PositionChanged += (s, e) =>
+            {
+                if (!w.IsVisible) return;
+                w.Opacity = 0.9;
+                timer.Stop(); timer.Start();
+            };
+        }
+
         public static void FadeIn(Control c, double ms = 130)
         {
             c.Transitions = new Transitions { new DoubleTransition { Property = Visual.OpacityProperty, Duration = TimeSpan.FromMilliseconds(ms) } };
             c.Opacity = 0;
             Dispatcher.UIThread.Post(() => c.Opacity = 1, DispatcherPriority.Loaded);
+        }
+    }
+}
+
+// ---- Printer
+namespace Notium
+{
+    using System.Net;
+    using System.Text;
+
+    /// <summary>Builds a printable page (black on white, monospaced, wrapped lines). The browser shows the print preview.</summary>
+    public static class Printer
+    {
+        public static string BuildHtml(string title, string text, bool lineNumbers)
+        {
+            string safeTitle = WebUtility.HtmlEncode(title);
+            var sb = new StringBuilder();
+            sb.Append("<!doctype html><html><head><meta charset=\"utf-8\"><title>").Append(safeTitle).Append("</title><style>");
+            sb.Append("@page{margin:18mm 16mm}body{margin:0;color:#000;background:#fff;font:10pt/1.45 Consolas,'Cascadia Code',Menlo,'DejaVu Sans Mono',monospace}");
+            sb.Append("h1{font:600 11pt system-ui,Segoe UI,Arial,sans-serif;margin:0 0 10pt;padding-bottom:6pt;border-bottom:1px solid #999}");
+            sb.Append("table{border-collapse:collapse;width:100%}td{vertical-align:top;padding:0}");
+            sb.Append("td.n{width:1%;white-space:nowrap;text-align:right;padding-right:10pt;color:#888;user-select:none}");
+            sb.Append("td.t,pre{white-space:pre-wrap;word-break:break-word;overflow-wrap:anywhere;margin:0;font:inherit}");
+            sb.Append(".bar{position:sticky;top:0;background:#f3f3f3;padding:8px 14px;font:13px system-ui,Segoe UI,Arial,sans-serif;border-bottom:1px solid #ccc}");
+            sb.Append(".bar button{font:inherit;padding:4px 14px;margin-right:10px}.page{padding:14px 18px}");
+            sb.Append("@media print{.bar{display:none}.page{padding:0}}</style></head><body>");
+            sb.Append("<div class=\"bar\"><button onclick=\"window.print()\">Print</button>Use the print dialog to choose the printer and see the preview.</div>");
+            sb.Append("<div class=\"page\"><h1>").Append(safeTitle).Append("</h1>");
+            if (lineNumbers)
+            {
+                sb.Append("<table>");
+                int n = 1;
+                foreach (var line in text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n'))
+                    sb.Append("<tr><td class=\"n\">").Append(n++).Append("</td><td class=\"t\">").Append(WebUtility.HtmlEncode(line)).Append("&#8203;</td></tr>");
+                sb.Append("</table>");
+            }
+            else sb.Append("<pre>").Append(WebUtility.HtmlEncode(text)).Append("</pre>");
+            sb.Append("</div><script>window.addEventListener('load',function(){setTimeout(function(){window.print()},350)})</script></body></html>");
+            return sb.ToString();
+        }
+    }
+}
+
+// ---- Text tools
+namespace Notium
+{
+    using System.Text;
+    using System.Text.RegularExpressions;
+    using Avalonia;
+    using Avalonia.Controls;
+    using Avalonia.Layout;
+    using Avalonia.Media;
+    using AvaloniaEdit;
+    using AvaloniaEdit.Document;
+    using AvaloniaEdit.Rendering;
+
+    /// <summary>Word counting and reading time.</summary>
+    public static class TextStats
+    {
+        public static int Words(string s)
+        {
+            int n = 0; bool inWord = false;
+            foreach (char ch in s)
+            {
+                bool w = !char.IsWhiteSpace(ch);
+                if (w && !inWord) n++;
+                inWord = w;
+            }
+            return n;
+        }
+
+        public static string Describe(string text, int lines, int chars)
+        {
+            int words = text.Length == 0 && chars > 0 ? -1 : Words(text);
+            int noSpaces = text.Length == 0 ? 0 : text.Count(ch => !char.IsWhiteSpace(ch));
+            string w = words < 0 ? "too large to count" : words.ToString();
+            string read = words < 0 ? "-" : words == 0 ? "0 min" : words < 230 ? "less than 1 min" : "about " + (int)Math.Ceiling(words / 230.0) + " min";
+            return $"Lines: {lines}\nWords: {w}\nCharacters: {chars}\nCharacters without spaces: {(words < 0 ? "-" : noSpaces.ToString())}\nReading time: {read}";
+        }
+    }
+
+    /// <summary>Whitespace clean-up used by Edit > Transform and by "Clean up when saving".</summary>
+    public static class TextClean
+    {
+        public static string TrimTrailing(string s) => Regex.Replace(s, @"[ \t]+(?=\r?\n|\z)", "");
+
+        public static string DoubleSpaces(string s) => Regex.Replace(s, @"(?<=\S) {2,}(?=\S)", " ");
+
+        public static string ExtraBlankLines(string s)
+            => Regex.Replace(s, @"(?:\r?\n){3,}", m => m.Value.StartsWith("\r\n") ? "\r\n\r\n" : "\n\n");
+
+        public static string TabsToSpaces(string s, int size)
+        {
+            size = Math.Clamp(size, 1, 16);
+            var sb = new StringBuilder(s.Length);
+            int col = 0;
+            foreach (char ch in s)
+            {
+                if (ch == '\t') { int n = size - col % size; sb.Append(' ', n); col += n; }
+                else { sb.Append(ch); col = ch == '\n' || ch == '\r' ? 0 : col + 1; }
+            }
+            return sb.ToString();
+        }
+
+        public static string SpacesToTabs(string s, int size)
+        {
+            size = Math.Clamp(size, 1, 16);
+            return Regex.Replace(s, "(?m)^(?: {" + size + "})+", m => new string('\t', m.Length / size));
+        }
+
+        public static string SmartCase(string s)
+            => Regex.Replace(s, @"(\A\s*|[.!?]\s+)(\p{Ll})", m => m.Groups[1].Value + m.Groups[2].Value.ToUpperInvariant());
+    }
+
+    /// <summary>Changes to a document and to files.</summary>
+    public static class DocEdit
+    {
+        /// <summary>Replaces only the part of the text that differs, so the caret and the scroll position stay where they are.</summary>
+        public static void ReplaceMinimal(TextDocument d, string newText)
+        {
+            string old = d.Text;
+            if (old == newText) return;
+            int p = 0, max = Math.Min(old.Length, newText.Length);
+            while (p < max && old[p] == newText[p]) p++;
+            int sfx = 0;
+            while (sfx < max - p && old[old.Length - 1 - sfx] == newText[newText.Length - 1 - sfx]) sfx++;
+            d.Replace(p, old.Length - p - sfx, newText.Substring(p, newText.Length - p - sfx));
+        }
+
+        /// <summary>Writes text (with "\n" line ends) the same way TabDoc.Save does: encoding, line ending, safe temporary file, optional backup.</summary>
+        public static void WriteFile(string path, string text, string encoding, string eol)
+        {
+            string body = Enc.Normalize(text).Replace("\n", Enc.EolString(eol));
+            var enc = Enc.Get(encoding);
+            byte[] pre = enc.GetPreamble(), data = enc.GetBytes(body);
+            string tmp = path + ".notium.tmp";
+            using (var fs = new FileStream(tmp, FileMode.Create, FileAccess.Write)) { fs.Write(pre, 0, pre.Length); fs.Write(data, 0, data.Length); }
+            if (AppSettings.Current.BackupOnSave && File.Exists(path)) { try { File.Copy(path, path + ".bak", true); } catch { } }
+            File.Move(tmp, path, true);
+        }
+    }
+
+    /// <summary>Colors the lines that have a bookmark.</summary>
+    public class BookmarkRenderer : IBackgroundRenderer
+    {
+        readonly Func<TabDoc> _tab;
+        public BookmarkRenderer(Func<TabDoc> tab) { _tab = tab; }
+        public KnownLayer Layer => KnownLayer.Background;
+
+        public void Draw(TextView tv, DrawingContext dc)
+        {
+            var t = _tab();
+            if (t == null || t.Bookmarks.Count == 0 || !tv.VisualLinesValid) return;
+            var lines = new HashSet<int>();
+            foreach (var a in t.Bookmarks) if (!a.IsDeleted) lines.Add(a.Line);
+            if (lines.Count == 0) return;
+            var col = ThemeColors.C(AppSettings.Current.Colors.Accent);
+            var fill = new SolidColorBrush(col, 0.20);
+            var bar = new SolidColorBrush(col);
+            foreach (var vl in tv.VisualLines)
+            {
+                if (!lines.Contains(vl.FirstDocumentLine.LineNumber)) continue;
+                double y = vl.VisualTop - tv.ScrollOffset.Y;
+                dc.DrawRectangle(fill, null, new Rect(0, y, tv.Bounds.Width, vl.Height));
+                dc.DrawRectangle(bar, null, new Rect(0, y, 3, vl.Height));
+            }
+        }
+    }
+
+    /// <summary>Shows what "Replace all" is going to change and asks for confirmation.</summary>
+    public class ReplacePreviewDialog : DialogBase
+    {
+        ReplacePreviewDialog(string summary, string note, List<(string text, int kind)> lines) : base("Replace in files - preview", 700)
+        {
+            var sp = new StackPanel { Margin = new Thickness(22, 20, 22, 20) };
+            sp.Children.Add(new TextBlock { Text = summary, FontSize = 16, FontWeight = FontWeight.SemiBold });
+            sp.Children.Add(new TextBlock { Text = note, Opacity = 0.7, FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 10) });
+            var list = new StackPanel { Spacing = 1 };
+            foreach (var (text, kind) in lines)
+            {
+                var tb = new TextBlock
+                {
+                    Text = text, FontFamily = new FontFamily(AppSettings.FontFallback), FontSize = 12, TextTrimming = TextTrimming.CharacterEllipsis,
+                    Margin = new Thickness(kind == 0 ? 0 : 14, kind == 0 ? 8 : 0, 0, 0), FontWeight = kind == 0 ? FontWeight.SemiBold : FontWeight.Normal
+                };
+                if (kind == 1) tb.Foreground = new SolidColorBrush(Color.Parse("#E06C75"));
+                if (kind == 2) tb.Foreground = new SolidColorBrush(Color.Parse("#98C379"));
+                list.Children.Add(tb);
+            }
+            sp.Children.Add(new ScrollViewer { Content = list, Height = 340, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled });
+            var bar = ButtonBar();
+            var ok = new Button { Content = "Replace", MinWidth = 100, IsDefault = true, HorizontalContentAlignment = HorizontalAlignment.Center };
+            var cancel = new Button { Content = "Cancel", MinWidth = 90, IsCancel = true, HorizontalContentAlignment = HorizontalAlignment.Center };
+            ok.Click += (s, e) => Close(true);
+            cancel.Click += (s, e) => Close(false);
+            bar.Children.Add(ok); bar.Children.Add(cancel);
+            sp.Children.Add(bar);
+            Content = sp;
+        }
+
+        public static async Task<bool> Ask(Window owner, string summary, string note, List<(string text, int kind)> lines)
+            => await new ReplacePreviewDialog(summary, note, lines).ShowDialog<bool>(owner);
+    }
+}
+
+// ---- TabGhost
+namespace Notium
+{
+    using Avalonia;
+    using Avalonia.Controls;
+    using Avalonia.Media;
+
+    /// <summary>Small floating label with the name of a tab, shown under the mouse while the tab is dragged out of the tab bar.</summary>
+    public class TabGhost : Window
+    {
+        TabGhost(string title)
+        {
+            var c = AppSettings.Current.Colors;
+            SystemDecorations = SystemDecorations.None;
+            ShowInTaskbar = false; ShowActivated = false; Topmost = true; CanResize = false; Focusable = false;
+            SizeToContent = SizeToContent.WidthAndHeight;
+            Background = Brushes.Transparent;
+            TransparencyLevelHint = new[] { WindowTransparencyLevel.Transparent };
+            Opacity = 0.93;
+            Content = new Border
+            {
+                Background = ThemeColors.B(c.Chrome), BorderBrush = ThemeColors.B(c.Accent), BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8), Padding = new Thickness(14, 8), IsHitTestVisible = false,
+                Child = new TextBlock { Text = title, Foreground = ThemeColors.B(c.Text), FontSize = 13, MaxWidth = 240, TextTrimming = TextTrimming.CharacterEllipsis }
+            };
+        }
+
+        public static TabGhost Open(string title)
+        {
+            var g = new TabGhost(title) { WindowStartupLocation = WindowStartupLocation.Manual };
+            g.Show();
+            return g;
         }
     }
 }

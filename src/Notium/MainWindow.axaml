@@ -7,12 +7,12 @@
         Icon="/Assets/notium.png"
         Background="{DynamicResource BgBrush}" Foreground="{DynamicResource TextBrush}"
         FontSize="13">
-    <Grid RowDefinitions="Auto,*,Auto">
+    <Grid x:Name="Root" RowDefinitions="Auto,*,Auto">
 
         <!-- Tab bar -->
         <LayoutTransformControl x:Name="TabBarScale" Grid.Row="0">
             <Border x:Name="TabBar" Height="46" Background="{DynamicResource ChromeBrush}">
-                <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto">
+                <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto,Auto">
                     <Button x:Name="MenuBtn" Classes="flat" Width="40" Height="32" Margin="6,0,2,0"
                             HorizontalContentAlignment="Center" VerticalContentAlignment="Center" Click="MenuBtn_Click">
                         <Path Stroke="{DynamicResource TextBrush}" StrokeThickness="1.6" StrokeLineCap="Round"
@@ -49,6 +49,18 @@
                         <Path Stroke="{DynamicResource TextBrush}" StrokeThickness="1.5" StrokeLineCap="Round"
                               Data="M0,4 L4.5,4 M9.5,4 L15,4 M7,1.5 A2.5,2.5 0 1 1 7,6.5 A2.5,2.5 0 1 1 7,1.5 M0,12 L7.5,12 M12.5,12 L15,12 M10,9.5 A2.5,2.5 0 1 1 10,14.5 A2.5,2.5 0 1 1 10,9.5"/>
                     </Button>
+                    <!-- window buttons (Windows only): same line as the tabs -->
+                    <StackPanel x:Name="CaptionBtns" Grid.Column="5" Orientation="Horizontal" IsVisible="False">
+                        <Button Classes="caption" Click="CapMin_Click" ToolTip.Tip="Minimize">
+                            <Path Stroke="{DynamicResource TextBrush}" StrokeThickness="1" Data="M0,0.5 L10,0.5"/>
+                        </Button>
+                        <Button Classes="caption" Click="CapMax_Click" ToolTip.Tip="Maximize / restore">
+                            <Path x:Name="CapMaxIcon" Stroke="{DynamicResource TextBrush}" StrokeThickness="1" Data="M0.5,0.5 L9.5,0.5 L9.5,9.5 L0.5,9.5 Z"/>
+                        </Button>
+                        <Button Classes="caption captionclose" Click="CapClose_Click" ToolTip.Tip="Close">
+                            <Path Stroke="{DynamicResource TextBrush}" StrokeThickness="1" Data="M0,0 L10,10 M10,0 L0,10"/>
+                        </Button>
+                    </StackPanel>
                 </Grid>
             </Border>
         </LayoutTransformControl>
@@ -102,7 +114,8 @@
                     <TextBlock x:Name="StFile" FontSize="11" VerticalAlignment="Center"
                                TextTrimming="CharacterEllipsis" Foreground="{DynamicResource MutedBrush}"/>
                     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="2" VerticalAlignment="Center">
-                        <TextBlock x:Name="StCount" FontSize="11" VerticalAlignment="Center" Margin="0,0,10,0"
+                        <TextBlock x:Name="StCount" FontSize="11" VerticalAlignment="Center" Margin="0,0,10,0" Background="Transparent" Cursor="Hand"
+                                   PointerPressed="Count_Click" ToolTip.Tip="Click for the details (words, reading time, selection)"
                                    Foreground="{DynamicResource MutedBrush}"/>
                         <Button x:Name="BtnPos" Classes="status" Click="Pos_Click" ToolTip.Tip="Go to line (Ctrl+G)"/>
                         <Button x:Name="BtnLang" Classes="status" Click="Lang_Click" ToolTip.Tip="Language"/>

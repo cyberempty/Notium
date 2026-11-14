@@ -116,7 +116,9 @@ When Notium opens you see a dark window with one empty tab and a **+** button. T
 **Tabs and windows**
 - Several documents in tabs, with a modified indicator; the active tab stands out.
 - Close a tab with its X, a middle click or `Ctrl+W`; reopen it with `Ctrl+Shift+T`; open a new one with `Ctrl+T`.
-- Multiple windows (`Ctrl+Shift+N`). Draggable tabs: reorder them, drag one out to detach it into a new window, or drop it onto another window.
+- **Pinned tabs** (right-click a tab > Pin tab, or `Ctrl+Shift+P`; the same menu has **Copy path** and **Open containing folder**): a pinned tab moves to the left, shows a pin instead of the X and cannot be closed by mistake (X, middle click and `Ctrl+W` are ignored until you unpin it). Pins are kept when tabs are restored.
+- Multiple windows (`Ctrl+Shift+N`). When you drag a tab out of the tab bar, a small label with its name follows the mouse, as on Windows; release it to open the tab in its own window, or drop it on another window to move it there.
+- **Window size is remembered**: Notium opens with the size (and maximized state) you left it, saved in `data/settings.json` (Settings > Windows and panels). Draggable tabs: reorder them, drag one out to detach it into a new window, or drop it onto another window.
 - Notepad-like behavior: Notium asks "Do you want to save changes?" only for documents that contain text or were modified. If you answer "Don't save", a second question asks you to confirm, so nothing is thrown away by mistake. Closing the last tab of the last window, or pressing the window X, quits the program.
 - **Restore tabs on start** (on by default, Settings > Files and saving): when you quit, your tabs are kept, including unsaved text, and they come back at the next start without any save prompt. Turn it off to start from an empty document like Notepad does; then Notium asks about unsaved changes on exit.
 
@@ -131,24 +133,29 @@ When Notium opens you see a dark window with one empty tab and a **+** button. T
 **Editing**
 - Find and replace (`Ctrl+F` / `Ctrl+H`) with match case, regular expressions and a match counter.
 - **Find in files** (`Ctrl+Shift+F`): search all open tabs or a whole folder, with a file filter such as `*.py;*.js`; double-click a result to open it at that line.
+- **Replace in files**: the same window (`Ctrl+Shift+F`) has a "Replace with" field. "Replace all..." first shows a **preview** of every file and line that will change (old line in red, new line in green) and asks for confirmation. Files open in a tab are changed in the tab and left unsaved, so `Ctrl+Z` undoes it; files on disk are written immediately. Regular expressions can use `$1`, `$2`...
+- **Bookmarks**: `Ctrl+F2` marks the current line (it is tinted with the accent color), `F2` / `Shift+F2` jump to the next / previous one. Bookmarks follow their line while you edit and last as long as the document is open.
 - **Go to line** (`Ctrl+G`), also as `line:column`.
 - Move lines up and down (`Alt+Up` / `Alt+Down`), duplicate and delete line, **toggle comment** (`Ctrl+/`, the marker depends on the language).
-- Transform text (selection or whole document): UPPERCASE, lowercase, Title Case, sort lines, reverse lines, remove duplicate or empty lines, trim trailing spaces.
+- Transform text (selection or whole document): UPPERCASE, lowercase, Title Case, sort lines, reverse lines, remove duplicate or empty lines, trim trailing spaces, remove double spaces, keep at most one empty line in a row, tabs to spaces, spaces to tabs, capitalize sentences.
+- **Clean up when saving** (on by default, Settings > Files and saving): removes spaces at the end of lines (not in Markdown) and collapses several empty lines into one. Two more options, off by default because they can change code or aligned text: remove double spaces, and convert tabs to spaces. Everything can be switched off.
 - Word wrap on by default, insert date and time, current-line highlight, optional visible spaces and tabs.
 - Zoom with `Ctrl` + mouse wheel, `Ctrl+Plus`, `Ctrl+Minus` and `Ctrl+0`.
 - Distraction-free mode (`F11`): full screen, no bars, centered column of text. `Esc` leaves it.
 
 **Files and folders**
+- **Notium remembers where you were**: when you reopen a file, the caret and the view return to the last position (the last 300 files are remembered).
 - Open several files, drag and drop, recent documents, and files passed on the command line or with "Open with".
 - **Folder panel** (`Ctrl+B`): browse the files of a folder and your recent documents; double-click to open.
 - Large files open without freezing the window; files over 100 MB ask first.
 - Safe saving through a temporary file; optional `.bak` backup before overwriting.
 - Files changed by another program reload by themselves if you did not edit them, otherwise Notium asks.
 - Encodings: UTF-8, UTF-8 with BOM, UTF-16 LE/BE, ASCII, Windows-1252 (auto-detected). Use **Reopen with encoding** if the detection is wrong, or **Save with encoding** to convert. Line endings: CRLF, LF, CR (auto-detected, changeable).
+- **Print with preview** (`Ctrl+P` or File > Print): the document opens as a clean black-on-white page in your default browser, whose print dialog shows the preview, the page layout and the printer choice. Line numbers are printed if they are on in Notium. The temporary page is stored in `data/print/` and old ones are removed automatically.
 - Save dialogs like Notepad: `.txt` by default, with an overwrite confirmation.
 
 **Status bar**
-- Line and column (click: go to line), language (click: choose), line ending, encoding and zoom (click: reset). Each one is clickable.
+- Lines, **words** and characters (click: details with reading time, and the same numbers for the selection), line and column (click: go to line), language (click: choose), line ending, encoding and zoom (click: reset). Each one is clickable.
 
 **Look**
 - Neutral dark interface by default (black, white, grey): rounded, modern and fully opaque, with soft hover animations.
@@ -167,12 +174,15 @@ Use `Cmd` instead of `Ctrl` on macOS.
 | New tab                        | `Ctrl+T` (or `Ctrl+N`)    |
 | New window                     | `Ctrl+Shift+N`            |
 | Open / Save / Save as          | `Ctrl+O` / `Ctrl+S` / `Ctrl+Shift+S` |
+| Print (preview)                | `Ctrl+P`                  |
 | Close tab / Reopen closed tab  | `Ctrl+W` / `Ctrl+Shift+T` |
+| Pin / unpin tab                | `Ctrl+Shift+P`            |
 | Next / previous tab            | `Ctrl+Tab` / `Ctrl+Shift+Tab` |
 | Find / Replace                 | `Ctrl+F` / `Ctrl+H`       |
 | Next / previous result         | `F3` / `Shift+F3`         |
 | Find in files                  | `Ctrl+Shift+F`            |
 | Go to line                     | `Ctrl+G`                  |
+| Toggle bookmark / next / previous | `Ctrl+F2` / `F2` / `Shift+F2` |
 | Move line up / down            | `Alt+Up` / `Alt+Down`     |
 | Toggle comment                 | `Ctrl+/`                  |
 | Delete / duplicate line        | `Ctrl+D` / `Ctrl+Shift+D` |
@@ -196,6 +206,7 @@ Open the settings with the gear button or `Ctrl+,`.
 ## Portability and privacy
 
 - Settings and themes are saved only in `data/`, inside the Notium-portable folder. Nothing is written to AppData, the registry or your home folder.
+- Printing writes a temporary page to `data/print/` and hands it to your browser; nothing else is created.
 - Notium never connects to the Internet by itself. The only network use is the one-time download of .NET by the launcher.
 - No telemetry, no analytics, no account, no advertising.
 - If the folder is not writable, Notium says so and does not save settings elsewhere.
