@@ -163,6 +163,18 @@ When Notium opens you see a dark window with one empty tab and a **+** button. T
 - Font, size, bold, tab size and interface size (80% to 160%).
 - Line numbers and a minimap, both off by default.
 
+## Menus at a glance
+
+Right-click the editor, or use the menu button, to reach every command. Shortcuts are shown next to each item.
+
+| Menu | What it contains |
+|---|---|
+| **File** | New tab, New window, Open, **Open folder**, Recent documents, Save, Save as, Print (preview), Close tab, Reopen closed tab, Pin / unpin tab, Exit |
+| **Edit** | Undo, Redo, Cut, Copy, Paste, Select all, Find, Replace, Find and replace in files, Go to line, **Bookmarks** (toggle, next, previous, clear), Duplicate / delete / move line, Toggle comment, **Transform**, Insert date and time |
+| **Format** | Reopen with encoding, Save with encoding, Line ending, Language, Word wrap |
+| **View** | Folder panel, Distraction-free mode, Zoom in / out / reset, Line numbers, Minimap, Visible spaces and tabs, Highlight current line, Status bar |
+| **Settings** | The settings window (`Ctrl+,`) |
+
 ## Keyboard shortcuts
 
 Use `Cmd` instead of `Ctrl` on macOS.
@@ -195,6 +207,8 @@ Use `Cmd` instead of `Ctrl` on macOS.
 ## Settings and themes
 
 Open the settings with the gear button or `Ctrl+,`.
+
+The settings window has eleven pages: **Appearance**, **Themes**, **Custom colors**, **Editor**, **Line numbers**, **Minimap**, **Files and saving**, **Keyboard shortcuts**, **Windows and panels**, **Privacy** and **Advanced settings** (open the data folder, reset everything).
 
 - **11 customizable colors** (background, text, selection, caret, current line, line numbers, minimap, chrome, active tab, hover, accent), each with a spectrum picker and a hex field.
 - **Your own themes:** save the current colors, export them as a `.notiumtheme` file and import themes made by others.
@@ -266,7 +280,7 @@ Other runtime identifiers: `win-arm64`, `linux-x64`, `linux-arm64`, `osx-x64`, `
 
 ## Publishing the project
 
-If you put this folder online (GitHub or anywhere else), publish it **before** running a launcher, or do not upload `runtime/`, `Notium-portable/` and `data/`. The built program is over 100 MB, which GitHub does not accept, and every user builds it on their own computer anyway. Linux and macOS support comes from the same code but is less tested than Windows: mention it in your project page.
+On GitHub only the source is published: the launchers, `src/`, `scripts/` and `images/`. Do not upload `runtime/`, `Notium-portable/` or `data/`: the built program is over 100 MB, which GitHub does not accept, and every user builds it on their own computer anyway. Linux and macOS support comes from the same code but is less tested than Windows.
 
 ## License
 

@@ -46,34 +46,6 @@ xcopy "%RT%\out\*" "%PORT%\" /E /Y /Q >nul
 if errorlevel 1 goto :fail
 move /y "%PORT%\Notium.App.exe" "%PORT%\Notium.exe" >nul
 
-echo   [100%%] Done. Starting Notium...
-echo.
-
-:run
-
-cls
-echo.
-echo   NOTIUM
-echo   --------------------------------------------------------
-echo   First start: preparing the program. This happens only once
-echo   and needs an Internet connection.
-echo.
-
-echo   [  0%%] Downloading components
-powershell -NoProfile -ExecutionPolicy Bypass -File "%ROOT%\scripts\download-dotnet.ps1" -Arch %ARCH% -InstallDir "%DOTNET_ROOT%" -Work "%RT%"
-if errorlevel 1 goto :fail
-
-echo.
-echo   [ 50%%] Building Notium (this takes a few minutes)
-"%DOTNET_ROOT%\dotnet.exe" publish "%ROOT%\src\Notium\Notium.csproj" -c Release -r %RID% --self-contained true -p:PublishSingleFile=true -p:DebugType=none -p:DebugSymbols=false -p:UseSharedCompilation=false -nodeReuse:false -nologo -v q -o "%RT%\out"
-if errorlevel 1 goto :fail
-
-echo   [ 90%%] Creating Notium-portable
-if not exist "%PORT%" mkdir "%PORT%"
-xcopy "%RT%\out\*" "%PORT%\" /E /Y /Q >nul
-if errorlevel 1 goto :fail
-move /y "%PORT%\Notium.App.exe" "%PORT%\Notium.exe" >nul
-
 echo   [ 97%%] Cleaning up
 rmdir /s /q "%RT%" >nul 2>&1
 rmdir /s /q "%ROOT%\src\Notium\obj" >nul 2>&1
