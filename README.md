@@ -117,6 +117,7 @@ When Notium opens you see a dark window with one empty tab and a **+** button. T
 - Several documents in tabs, with a modified indicator; the active tab stands out.
 - Close a tab with its X, a middle click or `Ctrl+W`; reopen it with `Ctrl+Shift+T`; open a new one with `Ctrl+T`.
 - **Pinned tabs** (right-click a tab > Pin tab, or `Ctrl+Shift+P`; the same menu has **Copy path** and **Open containing folder**): a pinned tab moves to the left, shows a pin instead of the X and cannot be closed by mistake (X, middle click and `Ctrl+W` are ignored until you unpin it). Pins are kept when tabs are restored.
+- **One running program, like Windows Notepad:** if Notium is already running and you open a file with it again (double-click, "Open with", command line), nothing new starts. The file opens as a new tab at the end of the tab bar of the window already open. If the file is already open, its window comes to the front (even when minimized) with the right tab selected.
 - Multiple windows (`Ctrl+Shift+N`). When you drag a tab out of the tab bar, a small label with its name follows the mouse, as on Windows; release it to open the tab in its own window, or drop it on another window to move it there.
 - **Window size is remembered**: Notium opens with the size (and maximized state) you left it, saved in `data/settings.json` (Settings > Windows and panels). Draggable tabs: reorder them, drag one out to detach it into a new window, or drop it onto another window.
 - Notepad-like behavior: Notium asks "Do you want to save changes?" only for documents that contain text or were modified. If you answer "Don't save", a second question asks you to confirm, so nothing is thrown away by mistake. Closing the last tab of the last window, or pressing the window X, quits the program.
@@ -244,6 +245,7 @@ Notium/
 ├── src/Notium/           Avalonia app (C#, .NET 10) - identical code on every system
 │   ├── Notium.csproj     project file and version number
 │   ├── App.axaml(.cs)    application, styles and program entry point
+│   ├── SingleInstance.cs one running program: a second start passes its files to the first one
 │   ├── MainWindow.axaml(.cs)  main window: tabs, editor, find panel, menus, shortcuts, folder panel, editing tools
 │   ├── Core.cs           settings and themes, keyboard shortcuts, session restore, languages,
 │   │                     syntax coloring, documents and encodings, dialogs, find in files,

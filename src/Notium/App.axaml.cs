@@ -30,6 +30,8 @@ public partial class App : Application
             desktop.MainWindow = w;
             w.Show();
             w.StartUp(desktop.Args, !AppSettings.DataWritable);
+            // files sent by a second start of the program arrive here (from another thread)
+            SingleInstance.Attach(paths => Avalonia.Threading.Dispatcher.UIThread.Post(() => HandleExternalOpen(paths)));
         }
         base.OnFrameworkInitializationCompleted();
     }
@@ -49,6 +51,39 @@ public partial class App : Application
         var t = ThemeColors.C(c.Text);
         r["MutedBrush"] = new SolidColorBrush(Color.FromArgb(150, t.R, t.G, t.B));
         app.RequestedThemeVariant = ThemeColors.IsDark(c.Background) ? ThemeVariant.Dark : ThemeVariant.Light;
+    }
+
+    /// <summary>
+    /// The program was started again (for example by double-clicking a file). Everything goes into the window already open:
+    /// a file that is already open is brought to the front, any other file opens as a new tab after the last one.
+    /// </summary>
+    static async void HandleExternalOpen(string[] paths)
+    {
+        try
+        {
+            var files = (paths ?? Array.Empty<string>()).Where(File.Exists).ToList();
+            var target = Windows.LastOrDefault(w => w.IsActive) ?? Windows.LastOrDefault();
+            if (target == null) return;
+            if (files.Count == 0) { target.BringToFront(); return; }
+            foreach (var f in files)
+            {
+                var (win, tab) = FindOpenFile(f);
+                if (win != null) { win.ShowTab(tab); target = win; continue; }
+                await target.OpenPathAsync(f);        // new tab at the end of the tab bar, selected
+                target.BringToFront();
+            }
+        }
+        catch { }
+    }
+
+    static (MainWindow, TabDoc) FindOpenFile(string path)
+    {
+        foreach (var w in Windows)
+        {
+            var t = w.FindTab(path);
+            if (t != null) return (w, t);
+        }
+        return (null, null);
     }
 
     /// <summary>Quits the whole program when the last window is gone.</summary>
@@ -71,6 +106,8 @@ internal static class Program
     {
         try
         {
+            // already running? hand the files to the running Notium and quit (like Windows Notepad)
+            if (SingleInstance.ForwardToRunning(args)) return 0;
             return BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
         }
         catch (Exception ex)

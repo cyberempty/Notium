@@ -216,6 +216,36 @@ public partial class MainWindow : Window
 
     public void AdoptTab(TabDoc t) { AddTab(t, true); Activate(); }
 
+    public bool HasTabs => _tabs.Count > 0;
+
+    /// <summary>The tab of this window that shows the given file, or null.</summary>
+    public TabDoc FindTab(string path)
+    {
+        string full;
+        try { full = Path.GetFullPath(path); } catch { full = path; }
+        var cmp = OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+        return _tabs.FirstOrDefault(t => t.Path != null && string.Equals(SafeFull(t.Path), full, cmp));
+    }
+
+    static string SafeFull(string p) { try { return Path.GetFullPath(p); } catch { return p; } }
+
+    /// <summary>Selects the tab and brings this window in front of everything (restoring it if minimized).</summary>
+    public void ShowTab(TabDoc t)
+    {
+        if (t != null && _tabs.Contains(t)) SelectTab(t);
+        BringToFront();
+    }
+
+    public void BringToFront()
+    {
+        if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
+        Show();
+        Activate();
+        // the system sometimes only blinks the taskbar button: a short "topmost" moment forces the window to the front
+        Topmost = true;
+        Avalonia.Threading.DispatcherTimer.RunOnce(() => { Topmost = false; Editor.Focus(); }, TimeSpan.FromMilliseconds(150));
+    }
+
     void RemoveTab(TabDoc t)
     {
         int i = _tabs.IndexOf(t);
@@ -874,8 +904,11 @@ public partial class MainWindow
     {
         try
         {
-            var ex = _tabs.FirstOrDefault(t => string.Equals(t.Path, path, StringComparison.OrdinalIgnoreCase));
-            if (ex != null) { SelectTab(ex); return; }
+            foreach (var w in App.Windows.ToList())
+            {
+                var ex = w.FindTab(path);                 // already open, maybe in another window: go there
+                if (ex != null) { w.ShowTab(ex); return; }
+            }
             var fi = new FileInfo(path);
             if (fi.Length > 100L * 1024 * 1024 &&
                 await MessageDialog.Show(this, $"\"{fi.Name}\" is very large ({fi.Length / 1024 / 1024} MB) and may be slow to edit.\nOpen it anyway?", "Open", "Cancel") != 0)
