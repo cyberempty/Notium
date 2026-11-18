@@ -232,7 +232,7 @@ Notium opens the files given on the command line, so "Open with" works: choose `
 
 ## Folder size
 
-`Notium-portable` is a self-contained build (not compressed, so it builds and starts faster) including the syntax grammars: expect roughly 120 to 170 MB (this is an estimate, not a measurement). The SDK, the NuGet cache and all build folders are removed automatically, so the whole project stays well under 270 MB.
+`Notium-portable` is a self-contained build (no .NET to install) including the syntax grammars. The .NET libraries inside the single executable are stored compressed (`EnableCompressionInSingleFile` in `Notium.csproj`): an uncompressed build is about 100 MB, the compressed one is expected to be roughly half of that (an estimate, not a measurement). The only cost is a slightly slower first start of the program. The build also trims the unused parts of the .NET libraries (partial trimming; Avalonia and Notium itself are not trimmed). To build without trimming, add `-p:NotiumTrim=false` to the `dotnet publish` command. The SDK, the NuGet cache and all build folders are removed automatically.
 
 ## Project structure
 

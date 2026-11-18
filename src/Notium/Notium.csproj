@@ -13,6 +13,20 @@
     <InvariantGlobalization>true</InvariantGlobalization>
     <NuGetAudit>false</NuGetAudit>
   </PropertyGroup>
+  <!-- Size: the single-file build stores the .NET libraries compressed (about half the size, same features). -->
+  <PropertyGroup Condition="'$(PublishSingleFile)' == 'true' And '$(SelfContained)' == 'true'">
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+  </PropertyGroup>
+  <!-- Size (trial): partial trimming removes unused parts of the .NET libraries only; Avalonia, AvaloniaEdit and
+       Notium itself are left untouched. Turn it off with -p:NotiumTrim=false if anything misbehaves. -->
+  <PropertyGroup Condition="'$(PublishSingleFile)' == 'true' And '$(SelfContained)' == 'true' And '$(NotiumTrim)' != 'false'">
+    <PublishTrimmed>true</PublishTrimmed>
+    <TrimMode>partial</TrimMode>
+    <SuppressTrimAnalysisWarnings>true</SuppressTrimAnalysisWarnings>
+    <TrimmerSingleWarn>true</TrimmerSingleWarn>
+    <!-- settings, themes and session files are read and written with reflection-based JSON -->
+    <JsonSerializerIsReflectionEnabledByDefault>true</JsonSerializerIsReflectionEnabledByDefault>
+  </PropertyGroup>
   <PropertyGroup Condition="'$(RuntimeIdentifier)' != '' And $(RuntimeIdentifier.StartsWith('win'))">
     <ApplicationIcon>Assets\notium.ico</ApplicationIcon>
   </PropertyGroup>
